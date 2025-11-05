@@ -53,6 +53,29 @@
     "Egypt": {lat: 30.0444, lng: 31.2357, name: "Cairo"}
   };
 
+  // Datos curiosos (puedes ampliar). Claves normalizadas.
+  var FUN_FACTS = {
+    "venezuela": "Tiene el Salto Ángel, la cascada más alta del mundo.",
+    "united states of america": "Es el tercer país más grande por superficie y tiene enorme diversidad de climas.",
+    "france": "Francia es el país más visitado del mundo en términos de turismo internacional.",
+    "spain": "España produce más del 40% del aceite de oliva mundial.",
+    "brazil": "Brasil alberga la mayor parte de la selva amazónica.",
+    "argentina": "Es el octavo país más grande del mundo y hogar de la Patagonia.",
+    "chile": "Chile contiene el desierto de Atacama, uno de los más secos del planeta.",
+    "mexico": "México tiene una de las mayores biodiversidades del mundo.",
+    "canada": "Canadá tiene la línea costera más larga del mundo.",
+    "united kingdom": "El Reino Unido está formado por cuatro países constituyentes.",
+    "germany": "Alemania es el mayor exportador de automóviles del mundo.",
+    "italy": "Italia alberga la ciudad con más monumentos Patrimonio de la Humanidad (Roma).",
+    "japan": "Japón está formado por más de 6.800 islas.",
+    "china": "China es el país más poblado del mundo.",
+    "india": "India es el segundo país más poblado y tiene una enorme diversidad lingüística.",
+    "australia": "Australia es el único país que ocupa todo un continente.",
+    "russia": "Rusia es el país más extenso del planeta.",
+    "south africa": "Sudáfrica tiene tres capitales: Pretoria (administrativa), Ciudad del Cabo (legislativa) y Bloemfontein (judicial).",
+    "egypt": "Egipto alberga la mayor parte de la histórica civilización del Antiguo Egipto y las pirámides de Giza."
+  };
+
   // Índice por nombre normalizado
     function normalizeName(s){
       if(!s) return '';
@@ -66,6 +89,25 @@
     }
   var capitalsIndex = {};
   Object.keys(CAPITALS).forEach(function(k){ capitalsIndex[normalizeName(k)] = CAPITALS[k]; });
+
+  // Intentar cargar un archivo local precomputado (capitals_facts.json) si existe
+  (function(){
+    fetch('capitals_facts.json').then(function(r){
+      if(!r.ok) throw new Error('not found');
+      return r.json();
+    }).then(function(data){
+      Object.keys(data).forEach(function(k){
+        var v = data[k];
+        // sólo añadir si tiene capital/coords
+        if(v && (v.lat || v.lng || v.capitalName)){
+          capitalsIndex[k] = { lat: v.lat, lng: v.lng, name: v.capitalName, fact: v.fact };
+        }
+      });
+      console.log('capitals_facts.json cargado, entradas:', Object.keys(data).length);
+    }).catch(function(){
+      // ignore if not present
+    });
+  })();
 
   var markers = [];
 
@@ -86,14 +128,19 @@
     var key = normalizeName(name);
     var matched = capitalsIndex[key];
     if(matched){
-      showCapital(matched.lat, matched.lng, '<strong>'+matched.name+'</strong><br/>'+ (name||'') );
+      var fact = matched.fact || FUN_FACTS[key];
+      var infoHtml = '<strong>' + matched.name + '</strong><br/>' + (name||'');
+      if(fact) infoHtml += '<br/><em>' + fact + '</em>';
+      showCapital(matched.lat, matched.lng, infoHtml);
     } else if (name) {
       // intentar obtener capital desde REST Countries API y cachearla
       showCapital(e.latlng.lat, e.latlng.lng, '<em>Buscando capital de '+name+'...</em>');
       getCapitalFromAPI(name).then(function(res){
         // cache
-        capitalsIndex[key] = { lat: res.lat, lng: res.lng, name: res.capitalName };
-        showCapital(res.lat, res.lng, '<strong>'+res.capitalName+'</strong><br/>'+name);
+        capitalsIndex[key] = { lat: res.lat, lng: res.lng, name: res.capitalName, fact: res.fact };
+        var infoHtml = '<strong>' + res.capitalName + '</strong><br/>' + name;
+        if(res.fact) infoHtml += '<br/><em>' + res.fact + '</em>';
+        showCapital(res.lat, res.lng, infoHtml);
       }).catch(function(err){
         console.warn('API capital lookup failed for', name, err);
         showCapital(e.latlng.lat, e.latlng.lng, '<strong>Capital no encontrada</strong><br/>'+name);
@@ -101,6 +148,26 @@
     } else {
       showCapital(e.latlng.lat, e.latlng.lng, '<strong>Capital no encontrada</strong><br/>'+ (name||'País desconocido') );
     }
+  }
+
+  // Genera un dato curioso corto a partir de la respuesta de REST Countries
+  function makeFactFromCountryData(item){
+    var parts = [];
+    if(item.region) parts.push('Región: ' + item.region);
+    if(item.population) parts.push('Población aprox. ' + (new Intl.NumberFormat().format(item.population)));
+    if(item.area) parts.push('Área: ' + (Math.round(item.area).toLocaleString()) + ' km²');
+    // moneda
+    if(item.currencies){
+      try{
+        var curKeys = Object.keys(item.currencies);
+        if(curKeys.length) parts.push('Moneda: ' + (item.currencies[curKeys[0]].name || curKeys[0]));
+      }catch(e){}
+    }
+    // idioma principal
+    if(item.languages){
+      try{ var langs = Object.values(item.languages); if(langs.length) parts.push('Idioma(s): ' + langs.slice(0,2).join(', ')); }catch(e){}
+    }
+    return parts.slice(0,3).join('. ');
   }
 
   // Consulta REST Countries para obtener capital y coordenadas
@@ -111,9 +178,10 @@
       var item = data[0];
       var capital = (item.capital && item.capital[0]) ? item.capital[0] : null;
       var capInfo = item.capitalInfo && item.capitalInfo.latlng ? item.capitalInfo.latlng : null;
-      if(capital && capInfo){ return { capitalName: capital, lat: capInfo[0], lng: capInfo[1] }; }
+      var fact = makeFactFromCountryData(item);
+      if(capital && capInfo){ return { capitalName: capital, lat: capInfo[0], lng: capInfo[1], fact: fact }; }
       // fallback to country latlng if available
-      if(item.latlng && item.latlng.length===2){ return { capitalName: capital || 'Capital', lat: item.latlng[0], lng: item.latlng[1] }; }
+      if(item.latlng && item.latlng.length===2){ return { capitalName: capital || 'Capital', lat: item.latlng[0], lng: item.latlng[1], fact: fact }; }
       throw new Error('no coords');
     });
   }
