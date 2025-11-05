@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Simple SVG favicon saved with .ico name to avoid 404. Many browsers accept SVG content as an icon; if you prefer a binary .ico, I can generate one and replace this file. -->
+<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'>
+  <rect width='16' height='16' fill='#007bff'/>
+  <circle cx='8' cy='8' r='6' fill='white'/>
+</svg>

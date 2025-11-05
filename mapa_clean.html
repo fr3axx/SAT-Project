@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Mapa limpio - Interacción Capitales</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.css" />
+  <style>
+    html,body,#map { height:100%; margin:0; padding:0 }
+    #map { width:100%; height:100vh }
+    .control-row { position: absolute; top:10px; left:10px; z-index:1000 }
+    .btn { background:#fff; border:1px solid #ccc; padding:6px 10px; margin-right:6px; cursor:pointer; border-radius:4px }
+  </style>
+</head>
+<body>
+  <div class="control-row">
+    <button id="btnClear" class="btn">Limpiar marcadores (Ctrl+Click)</button>
+    <button id="btnDebug" class="btn">Depurar capas</button>
+  </div>
+  <div id="map"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.js"></script>
+  <script>
+  // Mapa limpio: carga GeoJSON de países desde GitHub y añade handlers hover/click
+
+  var map = L.map('map', { worldCopyJump: true }).setView([20, 0], 2);
+
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+
+  // Datos de capitales (ejemplos); las claves deben coincidir con la propiedad 'name' del GeoJSON
+  var CAPITALS = {
+    "Venezuela": {lat: 10.4806, lng: -66.9036, name: "Caracas"},
+    "United States of America": {lat: 38.9072, lng: -77.0369, name: "Washington, D.C."},
+    "France": {lat: 48.8566, lng: 2.3522, name: "Paris"},
+    "Spain": {lat: 40.4168, lng: -3.7038, name: "Madrid"},
+    "Brazil": {lat: -15.7939, lng: -47.8828, name: "Brasília"},
+    "Argentina": {lat: -34.6037, lng: -58.3816, name: "Buenos Aires"},
+    "Chile": {lat: -33.4489, lng: -70.6693, name: "Santiago"},
+    "Mexico": {lat: 19.4326, lng: -99.1332, name: "Ciudad de México"},
+    "Canada": {lat: 45.4215, lng: -75.6972, name: "Ottawa"},
+    "United Kingdom": {lat: 51.5072, lng: -0.1276, name: "London"},
+    "Germany": {lat: 52.52, lng: 13.405, name: "Berlin"},
+    "Italy": {lat: 41.9028, lng: 12.4964, name: "Rome"},
+    "Japan": {lat: 35.6895, lng: 139.6917, name: "Tokyo"},
+    "China": {lat: 39.9042, lng: 116.4074, name: "Beijing"},
+    "India": {lat: 28.6139, lng: 77.2090, name: "New Delhi"},
+    "Australia": {lat: -35.2809, lng: 149.1300, name: "Canberra"},
+    "Russia": {lat: 55.7558, lng: 37.6173, name: "Moscow"},
+    "South Africa": {lat: -25.7461, lng: 28.1881, name: "Pretoria"},
+    "Egypt": {lat: 30.0444, lng: 31.2357, name: "Cairo"}
+  };
+
+  // Datos curiosos (puedes ampliar). Claves normalizadas.
+  var FUN_FACTS = {
+    "venezuela": "Tiene el Salto Ángel, la cascada más alta del mundo.",
+    "united states of america": "Es el tercer país más grande por superficie y tiene enorme diversidad de climas.",
+    "france": "Francia es el país más visitado del mundo en términos de turismo internacional.",
+    "spain": "España produce más del 40% del aceite de oliva mundial.",
+    "brazil": "Brasil alberga la mayor parte de la selva amazónica.",
+    "argentina": "Es el octavo país más grande del mundo y hogar de la Patagonia.",
+    "chile": "Chile contiene el desierto de Atacama, uno de los más secos del planeta.",
+    "mexico": "México tiene una de las mayores biodiversidades del mundo.",
+    "canada": "Canadá tiene la línea costera más larga del mundo.",
+    "united kingdom": "El Reino Unido está formado por cuatro países constituyentes.",
+    "germany": "Alemania es el mayor exportador de automóviles del mundo.",
+    "italy": "Italia alberga la ciudad con más monumentos Patrimonio de la Humanidad (Roma).",
+    "japan": "Japón está formado por más de 6.800 islas.",
+    "china": "China es el país más poblado del mundo.",
+    "india": "India es el segundo país más poblado y tiene una enorme diversidad lingüística.",
+    "australia": "Australia es el único país que ocupa todo un continente.",
+    "russia": "Rusia es el país más extenso del planeta.",
+    "south africa": "Sudáfrica tiene tres capitales: Pretoria (administrativa), Ciudad del Cabo (legislativa) y Bloemfontein (judicial).",
+    "egypt": "Egipto alberga la mayor parte de la histórica civilización del Antiguo Egipto y las pirámides de Giza."
+  };
+
+  // Índice por nombre normalizado
+    function normalizeName(s){
+      if(!s) return '';
+      try {
+        // Quitar diacríticos usando la clase Unicode si está soportada
+        return s.normalize('NFD').replace(/\p{Diacritic}/gu,'').toLowerCase();
+      } catch(e) {
+        // Fallback: eliminar los combinadores diacríticos comunes
+        return s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+      }
+    }
+  var capitalsIndex = {};
+  Object.keys(CAPITALS).forEach(function(k){ capitalsIndex[normalizeName(k)] = CAPITALS[k]; });
+
+  // Intentar cargar un archivo local precomputado (capitals_facts.json) si existe
+  (function(){
+    fetch('capitals_facts.json').then(function(r){
+      if(!r.ok) throw new Error('not found');
+      return r.json();
+    }).then(function(data){
+      Object.keys(data).forEach(function(k){
+        var v = data[k];
+        // sólo añadir si tiene capital/coords
+        if(v && (v.lat || v.lng || v.capitalName)){
+          capitalsIndex[k] = { lat: v.lat, lng: v.lng, name: v.capitalName, fact: v.fact };
+        }
+      });
+      console.log('capitals_facts.json cargado, entradas:', Object.keys(data).length);
+    }).catch(function(){
+      // ignore if not present
+    });
+  })();
+
+  var markers = [];
+
+  function showCapital(lat, lng, html){
+    // eliminar marcador previo para que sólo exista una capital activa
+    markers.forEach(function(m){ try{ map.removeLayer(m); }catch(e){} });
+    markers = [];
+    var m = L.marker([lat,lng]).addTo(map).bindPopup(html).openPopup();
+    markers.push(m);
+  }
+
+  function highlightLayer(e){ var layer = e.target; layer.setStyle && layer.setStyle({weight:2, color:'#666', fillOpacity:0.6}); if(layer.bringToFront) layer.bringToFront(); }
+  function resetLayer(e){ var layer = e.target; layer.setStyle && layer.setStyle({weight:1, color:'#3388ff', fillOpacity:0.2}); }
+
+  function onFeatureClick(e){
+    var props = (e.target && e.target.feature && e.target.feature.properties) ? e.target.feature.properties : {};
+    var name = props.name || props.NAME || props.ADMIN || props.NAME_LONG || props.SOVEREIGNT || props.admin || props.admin_name || null;
+    var key = normalizeName(name);
+    var matched = capitalsIndex[key];
+    if(matched){
+      var fact = matched.fact || FUN_FACTS[key];
+      var infoHtml = '<strong>' + matched.name + '</strong><br/>' + (name||'');
+      if(fact) infoHtml += '<br/><em>' + fact + '</em>';
+      showCapital(matched.lat, matched.lng, infoHtml);
+    } else if (name) {
+      // intentar obtener capital desde REST Countries API y cachearla
+      showCapital(e.latlng.lat, e.latlng.lng, '<em>Buscando capital de '+name+'...</em>');
+      getCapitalFromAPI(name).then(function(res){
+        // cache
+        capitalsIndex[key] = { lat: res.lat, lng: res.lng, name: res.capitalName, fact: res.fact };
+        var infoHtml = '<strong>' + res.capitalName + '</strong><br/>' + name;
+        if(res.fact) infoHtml += '<br/><em>' + res.fact + '</em>';
+        showCapital(res.lat, res.lng, infoHtml);
+      }).catch(function(err){
+        console.warn('API capital lookup failed for', name, err);
+        showCapital(e.latlng.lat, e.latlng.lng, '<strong>Capital no encontrada</strong><br/>'+name);
+      });
+    } else {
+      showCapital(e.latlng.lat, e.latlng.lng, '<strong>Capital no encontrada</strong><br/>'+ (name||'País desconocido') );
+    }
+  }
+
+  // Genera un dato curioso corto a partir de la respuesta de REST Countries
+  function makeFactFromCountryData(item){
+    var parts = [];
+    if(item.region) parts.push('Región: ' + item.region);
+    if(item.population) parts.push('Población aprox. ' + (new Intl.NumberFormat().format(item.population)));
+    if(item.area) parts.push('Área: ' + (Math.round(item.area).toLocaleString()) + ' km²');
+    // moneda
+    if(item.currencies){
+      try{
+        var curKeys = Object.keys(item.currencies);
+        if(curKeys.length) parts.push('Moneda: ' + (item.currencies[curKeys[0]].name || curKeys[0]));
+      }catch(e){}
+    }
+    // idioma principal
+    if(item.languages){
+      try{ var langs = Object.values(item.languages); if(langs.length) parts.push('Idioma(s): ' + langs.slice(0,2).join(', ')); }catch(e){}
+    }
+    return parts.slice(0,3).join('. ');
+  }
+
+  // Consulta REST Countries para obtener capital y coordenadas
+  function getCapitalFromAPI(countryName){
+    var url = 'https://restcountries.com/v3.1/name/' + encodeURIComponent(countryName) + '?fullText=true';
+    return fetch(url).then(function(r){ if(!r.ok) throw new Error('status '+r.status); return r.json(); }).then(function(data){
+      if(!Array.isArray(data) || data.length === 0) throw new Error('no data');
+      var item = data[0];
+      var capital = (item.capital && item.capital[0]) ? item.capital[0] : null;
+      var capInfo = item.capitalInfo && item.capitalInfo.latlng ? item.capitalInfo.latlng : null;
+      var fact = makeFactFromCountryData(item);
+      if(capital && capInfo){ return { capitalName: capital, lat: capInfo[0], lng: capInfo[1], fact: fact }; }
+      // fallback to country latlng if available
+      if(item.latlng && item.latlng.length===2){ return { capitalName: capital || 'Capital', lat: item.latlng[0], lng: item.latlng[1], fact: fact }; }
+      throw new Error('no coords');
+    });
+  }
+
+  // Cargar GeoJSON de países (fuente: johan/world.geo.json)
+  var geojsonUrl = 'https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json';
+
+  fetch(geojsonUrl).then(function(r){ if(!r.ok) throw new Error('GeoJSON fetch failed: '+r.status); return r.json(); }).then(function(data){
+    var geo = L.geoJSON(data, {
+      style: function(){ return {color:'#3388ff', weight:1, fillOpacity:0.2}; },
+      onEachFeature: function(feature, layer){
+        layer.on({ mouseover: highlightLayer, mouseout: resetLayer, click: onFeatureClick });
+      }
+    }).addTo(map);
+    console.log('GeoJSON cargado, capas:', geo.getLayers().length);
+  }).catch(function(err){ 
+    console.error('Error cargando GeoJSON:', err);
+    // Fallback de prueba: crear una pequeña FeatureCollection local para probar la interacción
+    var sample = {
+      "type": "FeatureCollection",
+      "features": [
+        {
+          "type": "Feature",
+          "properties": { "name": "Venezuela" },
+          "geometry": { "type": "Point", "coordinates": [ -66.9036, 10.4806 ] }
+        }
+      ]
+    };
+    var geoFallback = L.geoJSON(sample, {
+      pointToLayer: function(feature, latlng) { return L.circleMarker(latlng, {radius:6, fillColor:'#3388ff', color:'#3388ff', weight:1, fillOpacity:0.9}); },
+      onEachFeature: function(feature, layer){
+        layer.on({ mouseover: highlightLayer, mouseout: resetLayer, click: onFeatureClick });
+      }
+    }).addTo(map);
+    console.log('GeoJSON fallback añadido para pruebas (point Venezuela)');
+  });
+
+  // Botones UI
+  document.getElementById('btnClear').addEventListener('click', function(){ markers.forEach(function(m){ map.removeLayer(m); }); markers = []; });
+  document.getElementById('btnDebug').addEventListener('click', function(){
+    var out = [];
+    map.eachLayer(function(l){ out.push({type: l instanceof L.TileLayer ? 'TileLayer' : l instanceof L.Marker ? 'Marker' : l instanceof L.GeoJSON ? 'GeoJSON' : (l.feature ? 'Feature' : 'Other'), props: l.feature ? l.feature.properties : null}); });
+    console.log('Capas actuales:', out);
+    alert('Revisa la consola para ver la lista de capas (F12).');
+  });
+
+  // Soporte Ctrl+click para limpiar (atajo)
+  map.on('click', function(e){ if(e.originalEvent && e.originalEvent.ctrlKey){ markers.forEach(function(m){ map.removeLayer(m); }); markers = []; console.log('Markers cleared via Ctrl+click'); } });
+
+  </script>
+</body>
+</html>

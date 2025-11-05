@@ -11,7 +11,7 @@ def load_country_data(csv_path):
             key = row.get('iso_a3') or row.get('ISO_A3') or row.get('id')
             if not key:
                 continue
-            data[key.strip().upper()] = row
+            data[key.strip().upper()] = row 
     return data
 
 def merge_geojson_with_data(geojson_path, data_dict):
