@@ -69,7 +69,13 @@
 
   var markers = [];
 
-  function showCapital(lat, lng, html){ var m = L.marker([lat,lng]).addTo(map).bindPopup(html).openPopup(); markers.push(m); }
+  function showCapital(lat, lng, html){
+    // eliminar marcador previo para que sólo exista una capital activa
+    markers.forEach(function(m){ try{ map.removeLayer(m); }catch(e){} });
+    markers = [];
+    var m = L.marker([lat,lng]).addTo(map).bindPopup(html).openPopup();
+    markers.push(m);
+  }
 
   function highlightLayer(e){ var layer = e.target; layer.setStyle && layer.setStyle({weight:2, color:'#666', fillOpacity:0.6}); if(layer.bringToFront) layer.bringToFront(); }
   function resetLayer(e){ var layer = e.target; layer.setStyle && layer.setStyle({weight:1, color:'#3388ff', fillOpacity:0.2}); }
