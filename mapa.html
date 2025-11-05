@@ -13,6 +13,8 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.2.0/css/all.min.css"/>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/Leaflet.awesome-markers/2.0.2/leaflet.awesome-markers.css"/>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/python-visualization/folium/folium/templates/leaflet.awesome.rotate.min.css"/>
+    <!-- small inline SVG favicon to avoid browser requesting /favicon.ico and showing 404 in console -->
+    <link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='8' fill='%23007bff'/></svg>">
     
             <meta name="viewport" content="width=device-width,
                 initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -130,6 +132,124 @@
   "sticky": true,
 }
             );
-        
-</script>
+    </script>
+
+    <script>
+    // --- Datos de ejemplo de capitales: añadir más según necesidad ---
+    var CAPITALS = {
+        "Venezuela": {lat: 10.4806, lng: -66.9036, name: "Caracas"},
+        "United States": {lat: 38.9072, lng: -77.0369, name: "Washington, D.C."},
+        "France": {lat: 48.8566, lng: 2.3522, name: "Paris"},
+        "Spain": {lat: 40.4168, lng: -3.7038, name: "Madrid"},
+        "Brazil": {lat: -15.7939, lng: -47.8828, name: "Brasília"}
+        // Agrega aquí más países con la clave que coincida con feature.properties.NAME o name
+    };
+
+    // Normalizar nombres para búsqueda más tolerante (sin mayúsculas ni tildes)
+    function normalizeName(s) {
+        if (!s) return '';
+        try {
+            // quitar diacríticos y pasar a minúsculas
+            return s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
+        } catch (ex) {
+            // fallback si normalize con Unicode property no está soportado
+            return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+        }
+    }
+
+    // índice rápido por nombre normalizado
+    var CAPITALS_BY_KEY = {};
+    Object.keys(CAPITALS).forEach(function(k) {
+        CAPITALS_BY_KEY[normalizeName(k)] = CAPITALS[k];
+    });
+
+    // mantener múltiples marcadores para permitir ver varias capitales
+    var _capitalMarkers = [];
+
+    function createIcon() {
+        // intentar usar AwesomeMarkers si está disponible
+        try {
+            return L.AwesomeMarkers.icon({icon: 'flag', markerColor: 'blue', prefix: 'fa'});
+        } catch (ex) {
+            return null;
+        }
+    }
+
+    var _awesomeIcon = createIcon();
+
+    function showCapitalAt(latlng, htmlContent) {
+        var markerOptions = {};
+        if (_awesomeIcon) markerOptions.icon = _awesomeIcon;
+        var m = L.marker([latlng.lat, latlng.lng], markerOptions).addTo(map_8a7b0f5a23f28d54d3c5eaf7cecbeca0);
+        m.bindPopup(htmlContent).openPopup();
+        _capitalMarkers.push(m);
+    }
+
+    // función que maneja el click en un polígono/feature
+    function onCountryClick(e) {
+        var feature = e.target && e.target.feature ? e.target.feature : null;
+        var props = feature ? (feature.properties || {}) : {};
+        // intentar varios nombres comunes en propiedades
+        var countryName = props.NAME || props.name || props.ADMIN || props.ADMIN_NAME || props.country || props.CNTRY_NAME || props.NAME_LONG || props.SOVEREIGNT || props.formal_en;
+
+        var infoHtml = '';
+        var matched = null;
+        if (countryName) {
+            var key = normalizeName(countryName);
+            if (CAPITALS_BY_KEY[key]) matched = CAPITALS_BY_KEY[key];
+        }
+
+        if (matched) {
+            infoHtml = '<strong>' + (matched.name || 'Capital') + '</strong><br>' + (countryName || '');
+            showCapitalAt({lat: matched.lat, lng: matched.lng}, infoHtml);
+            // no hacer pan/zoom para respetar la vista actual (el popup abre aunque haya zoom distinto)
+        } else {
+            // si no hay match, mostrar mensaje y usar la posición del click para el popup
+            infoHtml = '<strong>Capital no encontrada</strong><br>' + (countryName || 'País desconocido');
+            showCapitalAt(e.latlng, infoHtml);
+        }
+    }
+
+    // resaltar y resetear estilo (si la capa soporta setStyle)
+    function highlightFeature(e) {
+        var layer = e.target;
+        try { layer.setStyle({weight: 3, color: '#666', fillOpacity: 0.7}); } catch (ex) {}
+        if (layer.bringToFront) layer.bringToFront();
+    }
+
+    function resetHighlight(e) {
+        var layer = e.target;
+        try { layer.setStyle({weight: 1, color: '#3388ff', fillOpacity: 0.2}); } catch (ex) {}
+    }
+
+    // adjuntar handlers tanto a capas GeoJSON como a features individuales
+    function attachGeoJsonHandlers() {
+        map_8a7b0f5a23f28d54d3c5eaf7cecbeca0.eachLayer(function(layer) {
+            try {
+                if (layer instanceof L.GeoJSON) {
+                    layer.eachLayer(function(inner) {
+                        inner.on({ mouseover: highlightFeature, mouseout: resetHighlight, click: onCountryClick });
+                    });
+                } else if (layer.feature) {
+                    // capas individuales
+                    layer.on({ mouseover: highlightFeature, mouseout: resetHighlight, click: onCountryClick });
+                }
+            } catch (ex) {
+                // ignore layers que no expongan la API esperada
+            }
+        });
+    }
+
+    // permitir limpiar marcadores con Ctrl+click en mapa (opcional)
+    map_8a7b0f5a23f28d54d3c5eaf7cecbeca0.on('click', function(e) {
+        if (e.originalEvent && e.originalEvent.ctrlKey) {
+            _capitalMarkers.forEach(function(m){ try{ map_8a7b0f5a23f28d54d3c5eaf7cecbeca0.removeLayer(m);}catch(ex){} });
+            _capitalMarkers = [];
+        }
+    });
+
+    // esperar a que folium/leaflet agregue las capas y luego adjuntar handlers
+    window.addEventListener('load', function() { setTimeout(attachGeoJsonHandlers, 500); });
+
+    </script>
 </html>

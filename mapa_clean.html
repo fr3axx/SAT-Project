@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Mapa limpio - Interacción Capitales</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.css" />
+  <style>
+    html,body,#map { height:100%; margin:0; padding:0 }
+    #map { width:100%; height:100vh }
+    .control-row { position: absolute; top:10px; left:10px; z-index:1000 }
+    .btn { background:#fff; border:1px solid #ccc; padding:6px 10px; margin-right:6px; cursor:pointer; border-radius:4px }
+  </style>
+</head>
+<body>
+  <div class="control-row">
+    <button id="btnClear" class="btn">Limpiar marcadores (Ctrl+Click)</button>
+    <button id="btnDebug" class="btn">Depurar capas</button>
+  </div>
+  <div id="map"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.js"></script>
+  <script>
+  // Mapa limpio: carga GeoJSON de países desde GitHub y añade handlers hover/click
+
+  var map = L.map('map', { worldCopyJump: true }).setView([20, 0], 2);
+
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+
+  // Datos de capitales (ejemplos); las claves deben coincidir con la propiedad 'name' del GeoJSON
+  var CAPITALS = {
+    "Venezuela": {lat: 10.4806, lng: -66.9036, name: "Caracas"},
+    "United States of America": {lat: 38.9072, lng: -77.0369, name: "Washington, D.C."},
+    "France": {lat: 48.8566, lng: 2.3522, name: "Paris"},
+    "Spain": {lat: 40.4168, lng: -3.7038, name: "Madrid"},
+    "Brazil": {lat: -15.7939, lng: -47.8828, name: "Brasília"},
+    "Argentina": {lat: -34.6037, lng: -58.3816, name: "Buenos Aires"},
+    "Chile": {lat: -33.4489, lng: -70.6693, name: "Santiago"},
+    "Mexico": {lat: 19.4326, lng: -99.1332, name: "Ciudad de México"},
+    "Canada": {lat: 45.4215, lng: -75.6972, name: "Ottawa"},
+    "United Kingdom": {lat: 51.5072, lng: -0.1276, name: "London"},
+    "Germany": {lat: 52.52, lng: 13.405, name: "Berlin"},
+    "Italy": {lat: 41.9028, lng: 12.4964, name: "Rome"},
+    "Japan": {lat: 35.6895, lng: 139.6917, name: "Tokyo"},
+    "China": {lat: 39.9042, lng: 116.4074, name: "Beijing"},
+    "India": {lat: 28.6139, lng: 77.2090, name: "New Delhi"},
+    "Australia": {lat: -35.2809, lng: 149.1300, name: "Canberra"},
+    "Russia": {lat: 55.7558, lng: 37.6173, name: "Moscow"},
+    "South Africa": {lat: -25.7461, lng: 28.1881, name: "Pretoria"},
+    "Egypt": {lat: 30.0444, lng: 31.2357, name: "Cairo"}
+  };
+
+  // Índice por nombre normalizado
+    function normalizeName(s){
+      if(!s) return '';
+      try {
+        // Quitar diacríticos usando la clase Unicode si está soportada
+        return s.normalize('NFD').replace(/\p{Diacritic}/gu,'').toLowerCase();
+      } catch(e) {
+        // Fallback: eliminar los combinadores diacríticos comunes
+        return s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+      }
+    }
+  var capitalsIndex = {};
+  Object.keys(CAPITALS).forEach(function(k){ capitalsIndex[normalizeName(k)] = CAPITALS[k]; });
+
+  var markers = [];
+
+  function showCapital(lat, lng, html){ var m = L.marker([lat,lng]).addTo(map).bindPopup(html).openPopup(); markers.push(m); }
+
+  function highlightLayer(e){ var layer = e.target; layer.setStyle && layer.setStyle({weight:2, color:'#666', fillOpacity:0.6}); if(layer.bringToFront) layer.bringToFront(); }
+  function resetLayer(e){ var layer = e.target; layer.setStyle && layer.setStyle({weight:1, color:'#3388ff', fillOpacity:0.2}); }
+
+  function onFeatureClick(e){
+    var props = (e.target && e.target.feature && e.target.feature.properties) ? e.target.feature.properties : {};
+    var name = props.name || props.NAME || props.ADMIN || props.NAME_LONG || props.SOVEREIGNT || props.admin || props.admin_name || null;
+    var key = normalizeName(name);
+    var matched = capitalsIndex[key];
+    if(matched){ showCapital(matched.lat, matched.lng, '<strong>'+matched.name+'</strong><br/>'+ (name||'') ); }
+    else { showCapital(e.latlng.lat, e.latlng.lng, '<strong>Capital no encontrada</strong><br/>'+ (name||'País desconocido') ); }
+  }
+
+  // Cargar GeoJSON de países (fuente: johan/world.geo.json)
+  var geojsonUrl = 'https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json';
+
+  fetch(geojsonUrl).then(function(r){ if(!r.ok) throw new Error('GeoJSON fetch failed: '+r.status); return r.json(); }).then(function(data){
+    var geo = L.geoJSON(data, {
+      style: function(){ return {color:'#3388ff', weight:1, fillOpacity:0.2}; },
+      onEachFeature: function(feature, layer){
+        layer.on({ mouseover: highlightLayer, mouseout: resetLayer, click: onFeatureClick });
+      }
+    }).addTo(map);
+    console.log('GeoJSON cargado, capas:', geo.getLayers().length);
+  }).catch(function(err){ 
+    console.error('Error cargando GeoJSON:', err);
+    // Fallback de prueba: crear una pequeña FeatureCollection local para probar la interacción
+    var sample = {
+      "type": "FeatureCollection",
+      "features": [
+        {
+          "type": "Feature",
+          "properties": { "name": "Venezuela" },
+          "geometry": { "type": "Point", "coordinates": [ -66.9036, 10.4806 ] }
+        }
+      ]
+    };
+    var geoFallback = L.geoJSON(sample, {
+      pointToLayer: function(feature, latlng) { return L.circleMarker(latlng, {radius:6, fillColor:'#3388ff', color:'#3388ff', weight:1, fillOpacity:0.9}); },
+      onEachFeature: function(feature, layer){
+        layer.on({ mouseover: highlightLayer, mouseout: resetLayer, click: onFeatureClick });
+      }
+    }).addTo(map);
+    console.log('GeoJSON fallback añadido para pruebas (point Venezuela)');
+  });
+
+  // Botones UI
+  document.getElementById('btnClear').addEventListener('click', function(){ markers.forEach(function(m){ map.removeLayer(m); }); markers = []; });
+  document.getElementById('btnDebug').addEventListener('click', function(){
+    var out = [];
+    map.eachLayer(function(l){ out.push({type: l instanceof L.TileLayer ? 'TileLayer' : l instanceof L.Marker ? 'Marker' : l instanceof L.GeoJSON ? 'GeoJSON' : (l.feature ? 'Feature' : 'Other'), props: l.feature ? l.feature.properties : null}); });
+    console.log('Capas actuales:', out);
+    alert('Revisa la consola para ver la lista de capas (F12).');
+  });
+
+  // Soporte Ctrl+click para limpiar (atajo)
+  map.on('click', function(e){ if(e.originalEvent && e.originalEvent.ctrlKey){ markers.forEach(function(m){ map.removeLayer(m); }); markers = []; console.log('Markers cleared via Ctrl+click'); } });
+
+  </script>
+</body>
+</html>
