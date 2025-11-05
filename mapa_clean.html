@@ -85,8 +85,37 @@
     var name = props.name || props.NAME || props.ADMIN || props.NAME_LONG || props.SOVEREIGNT || props.admin || props.admin_name || null;
     var key = normalizeName(name);
     var matched = capitalsIndex[key];
-    if(matched){ showCapital(matched.lat, matched.lng, '<strong>'+matched.name+'</strong><br/>'+ (name||'') ); }
-    else { showCapital(e.latlng.lat, e.latlng.lng, '<strong>Capital no encontrada</strong><br/>'+ (name||'País desconocido') ); }
+    if(matched){
+      showCapital(matched.lat, matched.lng, '<strong>'+matched.name+'</strong><br/>'+ (name||'') );
+    } else if (name) {
+      // intentar obtener capital desde REST Countries API y cachearla
+      showCapital(e.latlng.lat, e.latlng.lng, '<em>Buscando capital de '+name+'...</em>');
+      getCapitalFromAPI(name).then(function(res){
+        // cache
+        capitalsIndex[key] = { lat: res.lat, lng: res.lng, name: res.capitalName };
+        showCapital(res.lat, res.lng, '<strong>'+res.capitalName+'</strong><br/>'+name);
+      }).catch(function(err){
+        console.warn('API capital lookup failed for', name, err);
+        showCapital(e.latlng.lat, e.latlng.lng, '<strong>Capital no encontrada</strong><br/>'+name);
+      });
+    } else {
+      showCapital(e.latlng.lat, e.latlng.lng, '<strong>Capital no encontrada</strong><br/>'+ (name||'País desconocido') );
+    }
+  }
+
+  // Consulta REST Countries para obtener capital y coordenadas
+  function getCapitalFromAPI(countryName){
+    var url = 'https://restcountries.com/v3.1/name/' + encodeURIComponent(countryName) + '?fullText=true';
+    return fetch(url).then(function(r){ if(!r.ok) throw new Error('status '+r.status); return r.json(); }).then(function(data){
+      if(!Array.isArray(data) || data.length === 0) throw new Error('no data');
+      var item = data[0];
+      var capital = (item.capital && item.capital[0]) ? item.capital[0] : null;
+      var capInfo = item.capitalInfo && item.capitalInfo.latlng ? item.capitalInfo.latlng : null;
+      if(capital && capInfo){ return { capitalName: capital, lat: capInfo[0], lng: capInfo[1] }; }
+      // fallback to country latlng if available
+      if(item.latlng && item.latlng.length===2){ return { capitalName: capital || 'Capital', lat: item.latlng[0], lng: item.latlng[1] }; }
+      throw new Error('no coords');
+    });
   }
 
   // Cargar GeoJSON de países (fuente: johan/world.geo.json)
