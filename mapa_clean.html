@@ -16,6 +16,11 @@
   <div class="control-row">
     <button id="btnClear" class="btn">Limpiar marcadores (Ctrl+Click)</button>
     <button id="btnDebug" class="btn">Depurar capas</button>
+    <!-- Controles para Trivia -->
+    <button id="btnStartQuiz" class="btn">Iniciar Trivia</button>
+    <button id="btnNext" class="btn" style="display:none">Siguiente</button>
+    <span id="quizInfo" style="margin-left:8px; font-weight:600;"></span>
+    <span id="quizScore" style="margin-left:12px;">Aciertos: 0 / Intentos: 0</span>
   </div>
   <div id="map"></div>
 
@@ -186,6 +191,134 @@
     });
   }
 
+  // ==================== Trivia: lógica y estado ====================
+  var quizMode = false;
+  var currentQuestion = null; // { countryName, capital }
+  var score = 0;
+  var attempts = 0;
+  var quizCountries = []; // lista de nombres tal como aparecen en el GeoJSON
+  var countryLayerIndex = {}; // mapa: normalizedName -> layer (para resaltar/centrar)
+
+  function normalize(s){ return normalizeName(s); }
+
+  function buildCountryLayerIndex(geoLayer) {
+    quizCountries = [];
+    countryLayerIndex = {};
+    geoLayer.getLayers().forEach(function(layer){
+      var props = layer.feature && layer.feature.properties ? layer.feature.properties : {};
+      var name = props.name || props.NAME || props.ADMIN || props.admin || props.admin_name || null;
+      if(name){
+        var key = normalize(name);
+        quizCountries.push(name);
+        countryLayerIndex[key] = layer;
+      }
+    });
+    quizCountries = Array.from(new Set(quizCountries));
+    console.log('Índice trivia creado con', quizCountries.length, 'países');
+  }
+
+  function pickRandomCountry(){
+    if(!quizCountries.length) return null;
+    var idx = Math.floor(Math.random()*quizCountries.length);
+    var countryName = quizCountries[idx];
+    var key = normalize(countryName);
+    if(capitalsIndex && capitalsIndex[key] && capitalsIndex[key].name){
+      return { countryName: countryName, capital: capitalsIndex[key].name };
+    }
+    return { countryName: countryName, capital: null };
+  }
+
+  function showQuestion(q){
+    currentQuestion = q;
+    var info = document.getElementById('quizInfo');
+    if(!q) info.textContent = '';
+    else {
+      if(!q.capital){
+        info.textContent = 'Capital: (buscando...)';
+        getCapitalFromAPI(q.countryName).then(function(res){
+          q.capital = res.capitalName;
+          if(currentQuestion && normalize(currentQuestion.countryName) === normalize(q.countryName)){
+            document.getElementById('quizInfo').textContent = 'Capital: ' + q.capital;
+          }
+        }).catch(function(){ info.textContent = 'Capital: (desconocida)'; });
+      } else {
+        info.textContent = 'Capital: ' + q.capital;
+      }
+    }
+    document.getElementById('btnNext').style.display = 'none';
+  }
+
+  function featureClickHandler(e){
+    if(quizMode && currentQuestion){
+      var props = e.target.feature && e.target.feature.properties ? e.target.feature.properties : {};
+      var clickedName = props.name || props.NAME || props.ADMIN || props.admin || null;
+      var clickedKey = normalize(clickedName);
+      var targetKey = normalize(currentQuestion.countryName);
+      var layer = e.target;
+      handleQuizAnswer(layer, clickedKey === targetKey, clickedName);
+    } else {
+      onFeatureClick(e);
+    }
+  }
+
+  function handleQuizAnswer(layer, correct, clickedName){
+    attempts += 1;
+    if(correct){
+      score += 1;
+      try{ layer.setStyle && layer.setStyle({ color: '#28a745', fillColor: '#28a745', fillOpacity: 0.6 }); }catch(e){}
+      var targetKey = normalize(currentQuestion.countryName);
+      var cap = (capitalsIndex && capitalsIndex[targetKey]) ? capitalsIndex[targetKey] : null;
+      var infoHtml = '<strong>Correcto!</strong><br/>' + (currentQuestion.capital ? currentQuestion.capital : '') + '<br/>' + currentQuestion.countryName;
+      if(cap && cap.lat && cap.lng) showCapital(cap.lat, cap.lng, infoHtml); else showCapital(layer.getBounds ? layer.getBounds().getCenter().lat : layer.getLatLng().lat, layer.getBounds ? layer.getBounds().getCenter().lng : layer.getLatLng().lng, infoHtml);
+    } else {
+      try{ layer.setStyle && layer.setStyle({ color: '#dc3545', fillColor: '#dc3545', fillOpacity: 0.5 }); }catch(e){}
+      var targetLayer = countryLayerIndex[normalize(currentQuestion.countryName)];
+      if(targetLayer && targetLayer.setStyle){
+        try{ targetLayer.setStyle({ color: '#28a745', fillColor: '#28a745', fillOpacity: 0.6 }); }catch(e){}
+        setTimeout(function(){ try{ targetLayer.setStyle({ color:'#3388ff', fillOpacity:0.2, weight:1 }); }catch(e){} }, 1000);
+      }
+    }
+    updateScoreUI();
+    document.getElementById('btnNext').style.display = 'inline-block';
+    currentQuestion = null;
+  }
+
+  function updateScoreUI(){
+    document.getElementById('quizScore').textContent = 'Aciertos: ' + score + ' / Intentos: ' + attempts;
+  }
+
+  function startQuiz(){
+    quizMode = true;
+    score = 0; attempts = 0;
+    updateScoreUI();
+    document.getElementById('btnStartQuiz').textContent = 'Detener Trivia';
+    document.getElementById('btnNext').style.display = 'none';
+    nextQuestion();
+  }
+
+  function stopQuiz(){
+    quizMode = false;
+    currentQuestion = null;
+    document.getElementById('quizInfo').textContent = '';
+    document.getElementById('btnStartQuiz').textContent = 'Iniciar Trivia';
+    document.getElementById('btnNext').style.display = 'none';
+    if(window.geojsonLayer){
+      window.geojsonLayer.eachLayer(function(l){ try{ l.setStyle && l.setStyle({color:'#3388ff', weight:1, fillOpacity:0.2}); }catch(e){} });
+    }
+  }
+
+  function nextQuestion(){
+    document.getElementById('btnNext').style.display = 'none';
+    var q = pickRandomCountry();
+    if(!q){ document.getElementById('quizInfo').textContent = 'No hay países disponibles para la trivia.'; return; }
+    showQuestion(q);
+  }
+
+  document.getElementById('btnStartQuiz').addEventListener('click', function(){ if(!quizMode) startQuiz(); else stopQuiz(); });
+  document.getElementById('btnNext').addEventListener('click', function(){ nextQuestion(); });
+
+  // ==================== End Trivia ====================
+
   // Cargar GeoJSON de países (fuente: johan/world.geo.json)
   var geojsonUrl = 'https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json';
 
@@ -193,9 +326,12 @@
     var geo = L.geoJSON(data, {
       style: function(){ return {color:'#3388ff', weight:1, fillOpacity:0.2}; },
       onEachFeature: function(feature, layer){
-        layer.on({ mouseover: highlightLayer, mouseout: resetLayer, click: onFeatureClick });
+        layer.on({ mouseover: highlightLayer, mouseout: resetLayer, click: featureClickHandler });
       }
     }).addTo(map);
+    // Exponer la capa globalmente y construir el índice para la trivia
+    window.geojsonLayer = geo;
+    try{ buildCountryLayerIndex(geo); }catch(e){ console.warn('buildCountryLayerIndex falla:', e); }
     console.log('GeoJSON cargado, capas:', geo.getLayers().length);
   }).catch(function(err){ 
     console.error('Error cargando GeoJSON:', err);
@@ -213,9 +349,12 @@
     var geoFallback = L.geoJSON(sample, {
       pointToLayer: function(feature, latlng) { return L.circleMarker(latlng, {radius:6, fillColor:'#3388ff', color:'#3388ff', weight:1, fillOpacity:0.9}); },
       onEachFeature: function(feature, layer){
-        layer.on({ mouseover: highlightLayer, mouseout: resetLayer, click: onFeatureClick });
+        layer.on({ mouseover: highlightLayer, mouseout: resetLayer, click: featureClickHandler });
       }
     }).addTo(map);
+    // Exponer y construir índice para fallback
+    window.geojsonLayer = geoFallback;
+    try{ buildCountryLayerIndex(geoFallback); }catch(e){ console.warn('buildCountryLayerIndex fallback falla:', e); }
     console.log('GeoJSON fallback añadido para pruebas (point Venezuela)');
   });
 
