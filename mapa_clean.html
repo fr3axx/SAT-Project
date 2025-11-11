@@ -10,6 +10,12 @@
     #map { width:100%; height:100vh }
     .control-row { position: absolute; top:10px; left:10px; z-index:1000 }
     .btn { background:#fff; border:1px solid #ccc; padding:6px 10px; margin-right:6px; cursor:pointer; border-radius:4px }
+    /* Transiciones suaves para resaltados de trivia */
+    .quiz-correct, .quiz-wrong {
+      transition: fill 0.4s ease, stroke 0.4s ease, fill-opacity 0.4s ease, stroke-width 0.4s ease;
+    }
+    .quiz-correct { stroke: #28a745 !important; fill: #28a745 !important; fill-opacity: 0.6 !important; }
+    .quiz-wrong { stroke: #dc3545 !important; fill: #dc3545 !important; fill-opacity: 0.5 !important; }
   </style>
 </head>
 <body>
@@ -126,6 +132,17 @@
 
   function highlightLayer(e){ var layer = e.target; layer.setStyle && layer.setStyle({weight:2, color:'#666', fillOpacity:0.6}); if(layer.bringToFront) layer.bringToFront(); }
   function resetLayer(e){ var layer = e.target; layer.setStyle && layer.setStyle({weight:1, color:'#3388ff', fillOpacity:0.2}); }
+
+  // Restaurar estilo por defecto en una capa (útil para revertir colores temporales)
+  function resetLayerStyleByLayer(layer){
+    try{
+      if(!layer) return;
+      // Si es un feature con setStyle
+      if(layer.setStyle) layer.setStyle({ color:'#3388ff', weight:1, fillOpacity:0.2 });
+      // Si es un marcador de punto, intentar restaurar estilo si aplica
+      if(layer.setRadius && layer.setStyle){ layer.setStyle({ radius:6, fillColor:'#3388ff', color:'#3388ff', weight:1, fillOpacity:0.9 }); }
+    }catch(e){ }
+  }
 
   function onFeatureClick(e){
     var props = (e.target && e.target.feature && e.target.feature.properties) ? e.target.feature.properties : {};
@@ -265,18 +282,20 @@
     attempts += 1;
     if(correct){
       score += 1;
-      try{ layer.setStyle && layer.setStyle({ color: '#28a745', fillColor: '#28a745', fillOpacity: 0.6 }); }catch(e){}
+      // Aplicar clase CSS para efecto suave y mantener hasta "Siguiente"
+      try{ var el = layer.getElement && layer.getElement(); if(el) el.classList.add('quiz-correct'); else layer.setStyle && layer.setStyle({ color: '#28a745', fillColor: '#28a745', fillOpacity: 0.6 }); }catch(e){}
       var targetKey = normalize(currentQuestion.countryName);
       var cap = (capitalsIndex && capitalsIndex[targetKey]) ? capitalsIndex[targetKey] : null;
       var infoHtml = '<strong>Correcto!</strong><br/>' + (currentQuestion.capital ? currentQuestion.capital : '') + '<br/>' + currentQuestion.countryName;
       if(cap && cap.lat && cap.lng) showCapital(cap.lat, cap.lng, infoHtml); else showCapital(layer.getBounds ? layer.getBounds().getCenter().lat : layer.getLatLng().lat, layer.getBounds ? layer.getBounds().getCenter().lng : layer.getLatLng().lng, infoHtml);
+      // Nota: no revertimos el estilo aquí; se mantiene hasta que el usuario pulse "Siguiente" o detenga la trivia.
     } else {
-      try{ layer.setStyle && layer.setStyle({ color: '#dc3545', fillColor: '#dc3545', fillOpacity: 0.5 }); }catch(e){}
+      // Error: marcamos clicado como wrong (animado breve) y mantenemos el layer objetivo en verde hasta "Siguiente"
+      try{ var elWrong = layer.getElement && layer.getElement(); if(elWrong) elWrong.classList.add('quiz-wrong'); else layer.setStyle && layer.setStyle({ color: '#dc3545', fillColor: '#dc3545', fillOpacity: 0.5 }); }catch(e){}
       var targetLayer = countryLayerIndex[normalize(currentQuestion.countryName)];
-      if(targetLayer && targetLayer.setStyle){
-        try{ targetLayer.setStyle({ color: '#28a745', fillColor: '#28a745', fillOpacity: 0.6 }); }catch(e){}
-        setTimeout(function(){ try{ targetLayer.setStyle({ color:'#3388ff', fillOpacity:0.2, weight:1 }); }catch(e){} }, 1000);
-      }
+      if(targetLayer){ try{ var elT = targetLayer.getElement && targetLayer.getElement(); if(elT) elT.classList.add('quiz-correct'); else targetLayer.setStyle && targetLayer.setStyle({ color: '#28a745', fillColor: '#28a745', fillOpacity: 0.6 }); }catch(e){} }
+      // Quitar clase 'quiz-wrong' del clicado después de 1s (efecto breve)
+      setTimeout(function(){ try{ if(elWrong) elWrong.classList.remove('quiz-wrong'); else resetLayerStyleByLayer(layer); }catch(e){} }, 1000);
     }
     updateScoreUI();
     document.getElementById('btnNext').style.display = 'inline-block';
@@ -302,12 +321,13 @@
     document.getElementById('quizInfo').textContent = '';
     document.getElementById('btnStartQuiz').textContent = 'Iniciar Trivia';
     document.getElementById('btnNext').style.display = 'none';
-    if(window.geojsonLayer){
-      window.geojsonLayer.eachLayer(function(l){ try{ l.setStyle && l.setStyle({color:'#3388ff', weight:1, fillOpacity:0.2}); }catch(e){} });
-    }
+    // Limpiar cualquier resaltado de trivia
+    clearQuizHighlights();
   }
 
   function nextQuestion(){
+    // Limpiar resaltados previos antes de la siguiente pregunta
+    clearQuizHighlights();
     document.getElementById('btnNext').style.display = 'none';
     var q = pickRandomCountry();
     if(!q){ document.getElementById('quizInfo').textContent = 'No hay países disponibles para la trivia.'; return; }
@@ -316,6 +336,24 @@
 
   document.getElementById('btnStartQuiz').addEventListener('click', function(){ if(!quizMode) startQuiz(); else stopQuiz(); });
   document.getElementById('btnNext').addEventListener('click', function(){ nextQuestion(); });
+
+  // Limpia todas las clases/estilos aplicados por la trivia
+  function clearQuizHighlights(){
+    try{
+      if(window.geojsonLayer){
+        window.geojsonLayer.eachLayer(function(l){
+          try{
+            var el = l.getElement && l.getElement();
+            if(el){ el.classList.remove('quiz-correct'); el.classList.remove('quiz-wrong'); }
+            // y restaurar estilo base
+            resetLayerStyleByLayer(l);
+          }catch(e){}
+        });
+      }
+      // además limpiar markers temporales
+      markers.forEach(function(m){ try{ m.closePopup && m.closePopup(); }catch(e){} });
+    }catch(e){ }
+  }
 
   // ==================== End Trivia ====================
 
