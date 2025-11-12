@@ -1,0 +1,73 @@
+/* Estilos movidos desde mapa_clean.html para mantener el HTML limpio */
+
+html, body, #map {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+#map {
+  width: 100%;
+  height: 100vh;
+}
+
+.control-row {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 1000;
+}
+
+.control-row .card {
+  min-width: 280px;
+  max-width: 360px;
+  background: rgba(255,255,255,0.95);
+  border-radius: 8px;
+}
+
+.control-row .card .card-body { padding: 0.6rem; }
+
+.control-row .card .card-title { font-size: 0.95rem; }
+
+.control-row .badge { font-size: 0.8rem; }
+
+/* Transiciones suaves para resaltados de trivia */
+.quiz-correct, .quiz-wrong {
+  transition: fill 0.4s ease, stroke 0.4s ease, fill-opacity 0.4s ease, stroke-width 0.4s ease;
+}
+
+.quiz-correct { stroke: #28a745 !important; fill: #28a745 !important; fill-opacity: 0.6 !important; }
+.quiz-wrong { stroke: #dc3545 !important; fill: #dc3545 !important; fill-opacity: 0.5 !important; }
+
+/* Ajustes responsivos mínimos para el panel */
+@media (max-width: 576px) {
+  .control-row .card { width: 92vw !important; left: 4vw; }
+}
+
+/* Posicion top-right */
+.control-topright { top: 10px; right: 10px; left: auto; }
+.control-topright .card { min-width: 260px; }
+
+/* Estilo del toggle para minimizar */
+#btnToggleTrivia { width: 36px; }
+
+/* Si está colapsado, reducir sombra y tamaño */
+.control-topright .collapse:not(.show) + .card-body { display: none; }
+
+/* Transición suave para el colapso usando las clases de Bootstrap */
+/* La clase .collapsing es aplicada por Bootstrap durante la animación */
+#triviaBody.collapsing {
+  transition: height 350ms ease, opacity 300ms ease, transform 300ms ease;
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+/* Cuando la sección está visible, aplicamos opacidad plena */
+#triviaBody.collapse.show {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 300ms ease, transform 300ms ease;
+}
+
+/* Asegurar overflow hidden mientras colapsa */
+#triviaBody.collapsing, #triviaBody.collapse { overflow: hidden; }
