@@ -154,12 +154,70 @@
 
   var markers = [];
 
-  function showCapital(lat, lng, html){
+  function showCapital(lat, lng, html, countryName){
     // eliminar marcador previo para que sólo exista una capital activa
     markers.forEach(function(m){ try{ map.removeLayer(m); }catch(e){} });
     markers = [];
     var m = L.marker([lat,lng]).addTo(map).bindPopup(html).openPopup();
     markers.push(m);
+    // intentar obtener y mostrar bandera y botón "Mostrar país"
+    if(countryName){
+      getFlagForCountry(countryName).then(function(flag){
+        try{
+          var extra = '';
+          if(flag) extra += '<div style="margin-top:8px"><img src="'+flag+'" alt="Bandera de '+(countryName||'')+'" style="width:96px;height:auto;display:block;border:1px solid #ddd;padding:2px;border-radius:4px;"/></div>';
+          // enlace a Wikipedia en español (abre en nueva pestaña)
+          var wiki = 'https://es.wikipedia.org/wiki/' + encodeURIComponent(countryName.replace(/ /g,'_'));
+          extra += '<div style="margin-top:8px;text-align:right"><a class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener noreferrer" href="'+wiki+'">Wikipedia</a></div>';
+          var newHtml = (html || '') + extra;
+          try{ m.setPopupContent(newHtml); m.openPopup(); }catch(e){ /* ignore */ }
+        }catch(e){ /* noop */ }
+      }).catch(function(){ /* noop */ });
+    }
+  }
+
+  // Obtiene la URL de la bandera para un país (cachea en capitalsIndex si es posible)
+  function getFlagForCountry(countryName){
+    return new Promise(function(resolve, reject){
+      if(!countryName) return resolve(null);
+      var key = normalize(countryName);
+      if(capitalsIndex && capitalsIndex[key] && capitalsIndex[key].flag){ return resolve(capitalsIndex[key].flag); }
+      // consultar REST Countries para obtener la bandera
+      var url = 'https://restcountries.com/v3.1/name/' + encodeURIComponent(countryName) + '?fullText=true';
+      fetch(url).then(function(r){ if(!r.ok) throw new Error('status '+r.status); return r.json(); }).then(function(data){
+        if(Array.isArray(data) && data.length){
+          var item = data[0];
+          var flag = null;
+          try{ flag = (item.flags && (item.flags.svg || item.flags.png)) ? (item.flags.svg || item.flags.png) : null; }catch(e){}
+          if(flag){
+            if(!capitalsIndex) capitalsIndex = {};
+            capitalsIndex[key] = capitalsIndex[key] || {};
+            capitalsIndex[key].flag = flag;
+          }
+          resolve(flag);
+        } else resolve(null);
+      }).catch(function(){ resolve(null); });
+    });
+  }
+
+  // Centra el mapa en el país dado (por nombre tal como aparece en GeoJSON)
+  function showCountryOnMap(countryName){
+    if(!countryName) return;
+    var key = normalize(countryName);
+    var layer = countryLayerIndex[key];
+    if(layer){
+      try{
+        if(layer.getBounds && typeof layer.getBounds === 'function'){
+          map.fitBounds(layer.getBounds(), { maxZoom: 6 });
+        } else if(layer.getLatLng && typeof layer.getLatLng === 'function'){
+          var ll = layer.getLatLng(); map.setView([ll.lat, ll.lng], 6);
+        }
+        // destacar brevemente
+        try{ var el = layer.getElement && layer.getElement(); if(el) el.classList.add('quiz-correct'); setTimeout(function(){ if(el) el.classList.remove('quiz-correct'); resetLayerStyleByLayer(layer); }, 1500); }catch(e){}
+      }catch(e){ console.warn('No fue posible centrar en', countryName, e); }
+    } else {
+      console.warn('Capa de país no encontrada en índice para', countryName);
+    }
   }
 
   function highlightLayer(e){ var layer = e.target; layer.setStyle && layer.setStyle({weight:2, color:'#666', fillOpacity:0.6}); if(layer.bringToFront) layer.bringToFront(); }
@@ -185,22 +243,24 @@
       var fact = matched.fact || FUN_FACTS[key];
       var infoHtml = '<strong>' + matched.name + '</strong><br/>' + (name||'');
       if(fact) infoHtml += '<br/><em>' + fact + '</em>';
-      showCapital(matched.lat, matched.lng, infoHtml);
+  showCapital(matched.lat, matched.lng, infoHtml, name);
     } else if (name) {
       // intentar obtener capital desde REST Countries API y cachearla
-      showCapital(e.latlng.lat, e.latlng.lng, '<em>Buscando capital de '+name+'...</em>');
+  showCapital(e.latlng.lat, e.latlng.lng, '<em>Buscando capital de '+name+'...</em>', name);
       getCapitalFromAPI(name).then(function(res){
         // cache
         capitalsIndex[key] = { lat: res.lat, lng: res.lng, name: res.capitalName, fact: res.fact };
         var infoHtml = '<strong>' + res.capitalName + '</strong><br/>' + name;
         if(res.fact) infoHtml += '<br/><em>' + res.fact + '</em>';
-        showCapital(res.lat, res.lng, infoHtml);
+  // si la API devolvió bandera, cachearla
+  if(res.flag){ try{ var k = normalize(name); capitalsIndex[k] = capitalsIndex[k] || {}; capitalsIndex[k].flag = res.flag; }catch(e){} }
+  showCapital(res.lat, res.lng, infoHtml, name);
       }).catch(function(err){
         console.warn('API capital lookup failed for', name, err);
-        showCapital(e.latlng.lat, e.latlng.lng, '<strong>Capital no encontrada</strong><br/>'+name);
+  showCapital(e.latlng.lat, e.latlng.lng, '<strong>Capital no encontrada</strong><br/>'+name, name);
       });
     } else {
-      showCapital(e.latlng.lat, e.latlng.lng, '<strong>Capital no encontrada</strong><br/>'+ (name||'País desconocido') );
+  showCapital(e.latlng.lat, e.latlng.lng, '<strong>Capital no encontrada</strong><br/>'+ (name||'País desconocido') , name );
     }
   }
 
@@ -233,7 +293,9 @@
       var capital = (item.capital && item.capital[0]) ? item.capital[0] : null;
       var capInfo = item.capitalInfo && item.capitalInfo.latlng ? item.capitalInfo.latlng : null;
       var fact = makeFactFromCountryData(item);
-      if(capital && capInfo){ return { capitalName: capital, lat: capInfo[0], lng: capInfo[1], fact: fact }; }
+      var flag = null;
+      try{ flag = (item.flags && (item.flags.svg || item.flags.png)) ? (item.flags.svg || item.flags.png) : null; }catch(e){}
+      if(capital && capInfo){ return { capitalName: capital, lat: capInfo[0], lng: capInfo[1], fact: fact, flag: flag }; }
       // fallback to country latlng if available
       if(item.latlng && item.latlng.length===2){ return { capitalName: capital || 'Capital', lat: item.latlng[0], lng: item.latlng[1], fact: fact }; }
       throw new Error('no coords');
@@ -334,13 +396,13 @@
       var targetKey = normalize(currentQuestion.countryName);
       var cap = (capitalsIndex && capitalsIndex[targetKey]) ? capitalsIndex[targetKey] : null;
       var infoHtml = '<strong>Correcto!</strong><br/>' + (currentQuestion.capital ? currentQuestion.capital : '') + '<br/>' + currentQuestion.countryName;
-      if(cap && cap.lat && cap.lng) showCapital(cap.lat, cap.lng, infoHtml); else showCapital(layer.getBounds ? layer.getBounds().getCenter().lat : layer.getLatLng().lat, layer.getBounds ? layer.getBounds().getCenter().lng : layer.getLatLng().lng, infoHtml);
+  if(cap && cap.lat && cap.lng) showCapital(cap.lat, cap.lng, infoHtml, currentQuestion.countryName); else showCapital(layer.getBounds ? layer.getBounds().getCenter().lat : layer.getLatLng().lat, layer.getBounds ? layer.getBounds().getCenter().lng : layer.getLatLng().lng, infoHtml, currentQuestion.countryName);
       // Nota: no revertimos el estilo aquí; se mantiene hasta que el usuario pulse "Siguiente" o detenga la trivia.
     } else {
       // Error: marcamos clicado como wrong (animado breve) y mantenemos el layer objetivo en verde hasta "Siguiente"
       try{ var elWrong = layer.getElement && layer.getElement(); if(elWrong) elWrong.classList.add('quiz-wrong'); else layer.setStyle && layer.setStyle({ color: '#dc3545', fillColor: '#dc3545', fillOpacity: 0.5 }); }catch(e){}
       var targetLayer = countryLayerIndex[normalize(currentQuestion.countryName)];
-      if(targetLayer){ try{ var elT = targetLayer.getElement && targetLayer.getElement(); if(elT) elT.classList.add('quiz-correct'); else targetLayer.setStyle && targetLayer.setStyle({ color: '#28a745', fillColor: '#28a745', fillOpacity: 0.6 }); }catch(e){} }
+  if(targetLayer){ try{ var elT = targetLayer.getElement && targetLayer.getElement(); if(elT) elT.classList.add('quiz-correct'); else targetLayer.setStyle && targetLayer.setStyle({ color: '#28a745', fillColor: '#28a745', fillOpacity: 0.6 }); }catch(e){} }
       // Quitar clase 'quiz-wrong' del clicado después de 1s (efecto breve)
       setTimeout(function(){ try{ if(elWrong) elWrong.classList.remove('quiz-wrong'); else resetLayerStyleByLayer(layer); }catch(e){} }, 1000);
     }
@@ -504,7 +566,29 @@
   });
 
   // Botones UI
-  document.getElementById('btnClear').addEventListener('click', function(){ markers.forEach(function(m){ map.removeLayer(m); }); markers = []; });
+  document.getElementById('btnClear').addEventListener('click', function(){
+    try{
+      // eliminar marcadores del mapa
+      markers.forEach(function(m){ try{ map.removeLayer(m); }catch(e){} });
+      markers = [];
+      // limpiar resaltados de la trivia
+      clearQuizHighlights();
+      // reiniciar contador y puntuación de la trivia (historial)
+      score = 0;
+      attempts = 0;
+      questionCount = 0;
+      currentQuestion = null;
+      // detener temporizador si corre
+      try{ stopTimer(); }catch(e){}
+      // actualizar UI
+      try{ updateScoreUI(); }catch(e){}
+      try{ document.getElementById('quizInfo').textContent = ''; }catch(e){}
+      try{ document.getElementById('quizProgress').textContent = 'Pregunta: 0/' + (parseInt(document.getElementById('maxQuestions').value,10) || maxQuestions); }catch(e){}
+      try{ document.getElementById('quizTimer').textContent = 'Tiempo: --'; }catch(e){}
+      try{ document.getElementById('btnNext').style.display = 'none'; }catch(e){}
+      console.log('Markers and trivia history cleared');
+    }catch(err){ console.warn('Error clearing markers/history', err); }
+  });
 
   // Soporte Ctrl+click para limpiar (atajo)
   map.on('click', function(e){ if(e.originalEvent && e.originalEvent.ctrlKey){ markers.forEach(function(m){ map.removeLayer(m); }); markers = []; console.log('Markers cleared via Ctrl+click'); } });
