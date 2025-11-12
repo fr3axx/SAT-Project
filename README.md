@@ -127,34 +127,86 @@ Start-Process .\mapa_clean.html
   - Considerar servir un GeoJSON preprocesado desde tu propio servidor.
 
 ## Depuración — problemas comunes
+# SAT-Project — Mapa interactivo educativo (documentación)
 
-- `GeoJSON fetch failed` / CORS / 404
-  - Verifica conectividad, URL y restricciones CORS. Si la URL pública no permite CORS, baja el archivo y sírvelo desde el mismo origen o usa un proxy que permita CORS para desarrollo.
+Este repositorio contiene un prototipo de mapa educativo que permite mostrar países, capitales, datos curiosos y jugar una trivia donde el usuario debe señalar en el mapa el país correspondiente a una capital.
 
-- API REST Countries falla (rate limit o cambios)
-  - La API pública puede devolver errores o cambiar la estructura. En ese caso, imprime `console.log` (F12) y ajusta `getCapitalFromAPI` según la nueva respuesta.
+Archivos principales:
+- `mapa_clean.html` — versión interactiva y mantenible del mapa (Leaflet + JS). Aquí está la UI de la trivia, control de tiempo, badges, minimizable y con popups que muestran banderas y enlace a Wikipedia.
+- `styles/trivia.css` — estilos personalizados extraídos del HTML.
+- `main.py` — script opcional que genera `mapa.html` mediante Folium (si prefieres generar un HTML estático desde Python).
 
-- Popups vacíos o nombres de país no coincidentes
-  - Los nombres en el GeoJSON pueden diferir (alias, abreviaturas, idiomas). Preferible usar identificadores ISO en un pipeline real y preprocesar los datos para hacer join por `iso_a3` en lugar de por nombre.
+Resumen de funcionalidades actuales
+- Mapa interactivo con Leaflet (tiles OpenStreetMap).
+- Popups con capital, dato curioso y —si está disponible— la bandera del país.
+- Enlace a la página de Wikipedia del país (abre en nueva pestaña).
+- Trivia interactiva: preguntas aleatorias, temporizador por pregunta, límite configurable de preguntas, puntuación (aciertos/intentos).
+- UI moderna basada en Bootstrap: tarjeta minimizable ubicada en la esquina superior derecha.
+- Resaltados visuales para respuestas correctas/incorrectas y transiciones suaves.
 
-## Buenas prácticas y siguientes mejoras sugeridas
+Cómo usar (rápido)
+1. Abrir `mapa_clean.html` en un navegador (doble click). El archivo usa CDNs para Leaflet y Bootstrap, y descarga un GeoJSON público por lo que requiere conexión a Internet para la funcionalidad completa.
 
-- Mantener un dataset local preprocesado con `iso_a3`, `capital`, `lat`, `lng`, `flag_url`, `fun_fact` y usarlo para rellenar `capitalsIndex` al cargar la página.
-- Añadir un control de búsqueda (`L.Control` o plugin `leaflet-search`) para buscar países por nombre y centrar/abrir su popup.
-- Añadir un pequeño quiz interactivo que seleccione un país al azar y pida al usuario indicar su capital (esto requiere algo de JS adicional y UI estática).
-- Si el proyecto crece, considerar pasar a un backend (Flask/Express) que sirva los datos y el HTML y permita almacenamiento/edición de contenidos por parte de docentes.
+2. Opcional — regenerar `mapa.html` desde Python:
 
-## Créditos y licencias
+```powershell
+# activar tu entorno virtual si lo usas (Windows PowerShell)
+# .\sat\Scripts\Activate.ps1
+python main.py
+```
 
-- GeoJSON por defecto: `https://github.com/johan/world.geo.json` (ver repositorio para sus condiciones y atribución).
-- Tile layer: OpenStreetMap — atribución requerida ya incluida en el `tileLayer`.
-- REST Countries API: https://restcountries.com/ — para consultas de capitales y metadatos.
+Dependencias
+- No es necesario instalar nada para probar `mapa_clean.html` (usa CDN). Si usas `main.py` necesitarás Python y las librerías listadas en `requirements.txt` si existe (o instalar `folium`).
 
----
+Archivos recomendados para conservar
+- `mapa_clean.html` (principal, frontend interactivo)
+- `styles/trivia.css` (estilos)
+- `scripts/generate_capitals_facts.py` (si lo usas para preparar datos locales)
+- `capitals_facts.json` (si lo creas para mejorar disponibilidad offline)
 
-Si quieres, puedo:
+Archivos que puedes borrar (sugeridos) para limpiar el repositorio
+> Nota: antes de borrar archivos, haz una copia de seguridad si no estás seguro. Los siguientes suelen ser generados o innecesarios en un repositorio fuente:
 
-- Añadir ejemplos `capitals_facts.json` y un `countries.geo.json` reducido para pruebas inmediatas.
-- Modificar `mapa_clean.html` para incluir un control de búsqueda o un pequeño quiz interactivo.
+- `sat/` (entorno virtual completo) — contiene `Lib/site-packages` y archivos binarios. No deberías incluir entornos virtuales en el repositorio. Añade `sat/` a `.gitignore` y elimina la carpeta del repo si ya está versionada.
+- `mapa.html` (archivos HTML generados por Folium) — si el HTML fue generado por `main.py` puedes eliminar la copia generada y regenerarla cuando la necesites. Hay varias copias duplicadas en la raíz y en `SAT-Project/`; conserva sólo la que uses.
+- Copias duplicadas de `main.py` y `mapa.html` en distintos directorios (por ejemplo `main.py` en la raíz y en `SAT-Project/`) — conserva una única copia canonical del script y elimina duplicados.
+- `__pycache__/`, archivos `.pyc` y carpetas `build/` o `dist/` si existen.
+- Archivos grandes innecesarios (por ejemplo `countries.geo.json` sin procesar si lo añadiste y ocupa mucho): almacenar una versión simplificada o servirla desde un CDN en su lugar.
+- `sat/Lib/site-packages/` y cualquier otro `site-packages` — deben estar fuera del repositorio.
 
-Indica qué prefieres y continúo con esa mejora.
+Sugerencia de `.gitignore` mínima (añádela si no existe o amplía la actual):
+
+```
+# Entornos virtuales
+sat/
+venv/
+
+# Bytecode
+__pycache__/
+*.pyc
+
+# Archivos de sistema
+.DS_Store
+Thumbs.db
+
+# Archivos generados
+mapa.html
+countries.geo.json
+```
+
+Cambios recientes importantes
+- La UI de trivia se reescribió usando Bootstrap (tarjeta, badges, inputs). La tarjeta es minimizable y está colocada en la esquina superior derecha.
+- Se añadió soporte para mostrar la bandera del país en el popup y un enlace directo a Wikipedia (abre en nueva pestaña).
+- Se añadió un botón `Limpiar` que ahora limpia también el historial de la trivia (puntuación, intentos, temporizador, resaltados).
+- Se mejoró la animación del colapso con transiciones CSS.
+
+Ideas y siguientes pasos recomendados
+- Preprocesar y mantener localmente un archivo `capitals_facts.json` con `iso_a3`, `capital`, `lat`, `lng`, `flag_url`, `fun_fact` para evitar depender de la API pública en demos/offline.
+- Añadir un pequeño script de build (Makefile o script Python) que genere assets optimizados (GeoJSON simplificado, mapas estáticos, etc.).
+- Añadir pruebas básicas JS (si se integra con un bundler) o tests Python para los scripts de generación de datos.
+
+Si quieres, aplico ahora:
+- Limpiar duplicados concretos en el proyecto (mover/eliminar `mapa.html` duplicado y `main.py` si tienes preferencia de cuál conservar).
+- Añadir `sat/` a `.gitignore` y explicarte cómo regenerar el entorno virtual si lo borras.
+
+Indícame si quieres que proceda con cualquiera de estas acciones y lo hago en seguida.
